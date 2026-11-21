@@ -1,0 +1,3 @@
+FROM docker.io/library/archlinux:latest
+RUN pacman -Sy --noconfirm polkit dbus util-linux shadow >/dev/null 2>&1 && pacman -Q polkit dbus
+RUN useradd -m tester
