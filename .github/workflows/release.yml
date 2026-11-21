@@ -70,7 +70,8 @@ jobs:
           # The root helper is copied as is: linuxdeploy would add an RPATH to it.
           install -Dm755 target/release/hidforge-helper AppDir/usr/bin/hidforge-helper
           ./linuxdeploy --appimage-extract-and-run --appdir AppDir --output appimage
-          mv hidforge-*.AppImage hidforge-$VERSION-x86_64.AppImage
+          # linuxdeploy names the file from $VERSION; fail if that ever changes.
+          test -f hidforge-$VERSION-x86_64.AppImage
 
       - run: sha256sum hidforge-*.tar.gz hidforge_*.deb hidforge-*.AppImage > SHA256SUMS
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
