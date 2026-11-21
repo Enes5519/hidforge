@@ -1,6 +1,6 @@
 [package]
 name = "hidforge"
-version = "0.1.0"
+version = "0.1.0-rc.1"
 edition = "2024"
 rust-version = "1.88"
 description = "Make Windows-only keyboard and mouse software work on Linux"
@@ -14,3 +14,25 @@ gpui-kit = "0.9.1"
 image = { version = "0.25", default-features = false, features = ["png"] }
 libc = "0.2.191"
 rust-i18n = "3"
+
+[package.metadata.deb]
+section = "utils"
+depends = "$auto, polkitd | policykit-1"
+recommends = "clang, libbpf-dev"
+assets = [
+  ["target/release/hidforge", "usr/bin/", "755"],
+  ["target/release/hidforge-helper", "usr/libexec/", "755"],
+  ["assets/org.hidforge.helper.policy", "usr/share/polkit-1/actions/", "644"],
+  ["assets/package-managed", "usr/share/hidforge/package-managed", "644"],
+  ["assets/hidforge.desktop", "usr/share/applications/", "644"],
+  ["assets/brand/icons/hidforge.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+  ["assets/brand/icons/hidforge-16.png", "usr/share/icons/hicolor/16x16/apps/hidforge.png", "644"],
+  ["assets/brand/icons/hidforge-24.png", "usr/share/icons/hicolor/24x24/apps/hidforge.png", "644"],
+  ["assets/brand/icons/hidforge-32.png", "usr/share/icons/hicolor/32x32/apps/hidforge.png", "644"],
+  ["assets/brand/icons/hidforge-48.png", "usr/share/icons/hicolor/48x48/apps/hidforge.png", "644"],
+  ["assets/brand/icons/hidforge-64.png", "usr/share/icons/hicolor/64x64/apps/hidforge.png", "644"],
+  ["assets/brand/icons/hidforge-128.png", "usr/share/icons/hicolor/128x128/apps/hidforge.png", "644"],
+  ["assets/brand/icons/hidforge-256.png", "usr/share/icons/hicolor/256x256/apps/hidforge.png", "644"],
+  ["assets/brand/icons/hidforge-512.png", "usr/share/icons/hicolor/512x512/apps/hidforge.png", "644"],
+  ["README.md", "usr/share/doc/hidforge/", "644"],
+]

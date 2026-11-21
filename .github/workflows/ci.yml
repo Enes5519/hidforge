@@ -4,12 +4,15 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           components: clippy, rustfmt
       # System libraries the GUI toolkit (gpui) links against.
@@ -24,10 +27,16 @@ jobs:
       - run: |
           cargo build --locked --bin hidforge-helper
           ! nm -C target/debug/hidforge-helper | grep -qiE 'gpui|tokio|zbus'
+      # The root helper must load libraries only from system paths: no RPATH/RUNPATH, and only
+      # the C runtime as dependencies.
+      - run: |
+          ! readelf -d target/debug/hidforge-helper | grep -qE 'RPATH|RUNPATH'
+          bad=$(readelf -d target/debug/hidforge-helper | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' | grep -vE '^(libc|libgcc_s|libm|libdl|libpthread|ld-linux[^ ]*)\.so' || true)
+          [ -z "$bad" ] || { echo "unexpected helper dependencies: $bad"; exit 1; }
 
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: cargo install cargo-audit --locked
       - run: cargo audit

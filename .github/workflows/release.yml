@@ -1,0 +1,152 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  # Dry run: the same build, packaging and verification, but nothing is attested or published
+  # (the publish job only runs for a tag push). Start it from the Actions tab.
+  workflow_dispatch:
+
+# Least privilege: jobs that need more ask for it themselves.
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Oldest supported runner: binaries link its (older) glibc, so they run on newer distros too.
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - name: Version (and tag) must be consistent
+        id: ver
+        run: |
+          v=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')
+          # X.Y.Z or a release candidate X.Y.Z-rc.N (the tag is the same with a leading v).
+          echo "$v" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$' || { echo "Cargo.toml version '$v' is not X.Y.Z or X.Y.Z-rc.N"; exit 1; }
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME != Cargo.toml v$v"; exit 1; }
+          else
+            echo "dry run on $GITHUB_REF_NAME: no tag to compare, Cargo.toml says $v"
+          fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      # System libraries the GUI toolkit (gpui) links against.
+      - run: >
+          sudo apt-get update && sudo apt-get install -y
+          libasound2-dev libfontconfig-dev libwayland-dev libx11-xcb-dev
+          libxkbcommon-x11-dev libssl-dev libzstd-dev libvulkan-dev
+          libfuse2
+      - run: cargo build --release --locked
+
+      - name: tar.gz
+        run: packaging/make-tarball.sh "$VERSION"
+
+      - name: deb
+        run: |
+          cargo install cargo-deb --locked
+          cargo deb --no-build --output hidforge_${VERSION}_amd64.deb
+
+      - name: AppImage
+        run: |
+          curl -fsSL -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20250213-2/linuxdeploy-x86_64.AppImage
+          # Pinned tool: refuse a swapped download.
+          echo "4648f278ab3ef31f819e67c30d50f462640e5365a77637d7e6f2ad9fd0b4522a  linuxdeploy" | sha256sum -c -
+          chmod +x linuxdeploy
+          ./linuxdeploy --appimage-extract-and-run --appdir AppDir \
+            -e target/release/hidforge \
+            -e target/release/hidforge-helper \
+            -d assets/hidforge.desktop \
+            -i assets/brand/icons/hidforge-256.png \
+            --output appimage
+          mv hidforge-*.AppImage hidforge-$VERSION-x86_64.AppImage
+
+      - run: sha256sum hidforge-*.tar.gz hidforge_*.deb hidforge-*.AppImage > SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-files
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            hidforge-*.tar.gz
+            hidforge_*.deb
+            hidforge-*.AppImage
+            SHA256SUMS
+
+  # Runs for a dry run too. Read-only: it cannot publish anything.
+  verify:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-files
+          path: dist
+      # The checks run the GUI binary headless (`hidforge --check`), so its libraries must resolve.
+      - run: >
+          sudo apt-get update && sudo apt-get install -y
+          libasound2-dev libfontconfig-dev libwayland-dev libx11-xcb-dev
+          libxkbcommon-x11-dev libssl-dev libzstd-dev libvulkan-dev
+      # Checksums, archive contents, helper version and linkage, glibc ceiling of the binaries
+      # (ubuntu-22.04 ships 2.35), .deb paths and version, AppImage contents.
+      - name: Verify artifacts
+        env:
+          GLIBC_MAX: "2.35"
+        run: packaging/verify-artifacts.sh "${{ needs.build.outputs.version }}" dist
+      - name: Summary
+        run: |
+          {
+            echo "### Release check"
+            echo "- version: \`${{ needs.build.outputs.version }}\`, event: \`$GITHUB_EVENT_NAME\`, ref: \`$GITHUB_REF_NAME\`"
+            echo "- repository private: \`${{ github.event.repository.private }}\` (attestations need a public repository)"
+            if [ "$GITHUB_EVENT_NAME" = push ]; then echo "- publishing: yes, if this job passes"; else echo "- **dry run: nothing is attested, tagged or published**"; fi
+            echo; echo '```'; (cd dist && ls -l && cat SHA256SUMS); echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Only for a pushed v* tag, and only when the build and every check above succeeded.
+  publish:
+    needs: [build, verify]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write # create the release
+      id-token: write # sign attestations
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-files
+          path: dist
+      # Same bytes that were verified: checksums must still match before upload.
+      - run: cd dist && sha256sum -c SHA256SUMS
+      # Build provenance (`gh attestation verify`); GitHub only offers it for public repos on the free plan.
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        if: ${{ !github.event.repository.private }}
+        with:
+          subject-path: |
+            dist/hidforge-*.tar.gz
+            dist/hidforge_*.deb
+            dist/hidforge-*.AppImage
+            dist/SHA256SUMS
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          # X.Y.Z-rc.N is a pre-release, never "latest".
+          prerelease: ${{ contains(github.ref_name, '-rc.') }}
+          files: |
+            dist/hidforge-*.tar.gz
+            dist/hidforge_*.deb
+            dist/hidforge-*.AppImage
+            dist/SHA256SUMS
