@@ -61,12 +61,15 @@ jobs:
           # Pinned tool: refuse a swapped download.
           echo "4648f278ab3ef31f819e67c30d50f462640e5365a77637d7e6f2ad9fd0b4522a  linuxdeploy" | sha256sum -c -
           chmod +x linuxdeploy
+          # linuxdeploy names the icon after the file; the desktop entry says Icon=hidforge.
+          cp assets/brand/icons/hidforge-256.png hidforge.png
           ./linuxdeploy --appimage-extract-and-run --appdir AppDir \
             -e target/release/hidforge \
-            -e target/release/hidforge-helper \
             -d assets/hidforge.desktop \
-            -i assets/brand/icons/hidforge-256.png \
-            --output appimage
+            -i hidforge.png
+          # The root helper is copied as is: linuxdeploy would add an RPATH to it.
+          install -Dm755 target/release/hidforge-helper AppDir/usr/bin/hidforge-helper
+          ./linuxdeploy --appimage-extract-and-run --appdir AppDir --output appimage
           mv hidforge-*.AppImage hidforge-$VERSION-x86_64.AppImage
 
       - run: sha256sum hidforge-*.tar.gz hidforge_*.deb hidforge-*.AppImage > SHA256SUMS

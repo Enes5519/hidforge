@@ -66,5 +66,8 @@ if [ -f "$img" ]; then
   [ -x "$img" ] || chmod +x "$img"
   (cd "$work" && "$img" --appimage-extract >/dev/null 2>&1) && [ -x "$work/squashfs-root/usr/bin/hidforge" ] && [ -x "$work/squashfs-root/usr/bin/hidforge-helper" ] \
     && ok "AppImage holds hidforge and hidforge-helper" || bad "AppImage lacks hidforge or hidforge-helper"
+  # The helper runs as root from a user-writable staging dir: no RPATH/RUNPATH, same as the other artifacts.
+  readelf -d "$work/squashfs-root/usr/bin/hidforge-helper" 2>/dev/null | grep -qE '\((RPATH|RUNPATH)\)' \
+    && bad "AppImage hidforge-helper has RPATH/RUNPATH" || ok "AppImage hidforge-helper has no RPATH/RUNPATH"
 fi
 [ $fail -eq 0 ] && echo "all artifact checks passed" || { echo "artifact verification FAILED" >&2; exit 1; }
