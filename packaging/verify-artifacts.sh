@@ -44,7 +44,7 @@ for f in hidforge hidforge-helper; do
   else echo "info: $f needs glibc ${need:-none} (GLIBC_MAX not set)"; fi
 done
 # The GUI starts headless CLI modes without a display (dynamic libraries resolve).
-env -i LC_ALL=C "$t/hidforge" --check >"$work/check.out" 2>&1; rc=$?
+rc=0; env -i LC_ALL=C "$t/hidforge" --check >"$work/check.out" 2>&1 || rc=$?
 { [ $rc -eq 0 ] || [ $rc -eq 1 ]; } && grep -q . "$work/check.out" && ok "hidforge --check runs (exit $rc)" || bad "hidforge --check failed (exit $rc): $(head -2 "$work/check.out")"
 [ -f "$t/hidforge.desktop" ] && grep -q '^Exec=hidforge$' "$t/hidforge.desktop" && ok "desktop file present" || bad "desktop file wrong"
 
