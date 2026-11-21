@@ -17,3 +17,4 @@ pub mod hidbpf;
 pub mod privileged;
 pub mod requirements;
 pub mod rules;
+pub mod selfinstall;

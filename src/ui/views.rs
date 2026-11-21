@@ -4,6 +4,7 @@ use crate::{
     hidbpf,
     requirements::{self, Requirement},
     rules::{self, AccessMode, InstalledRule},
+    selfinstall,
 };
 use gpui_kit::assets::IconName;
 use gpui_kit::base::{Disableable, StyledExt};
@@ -232,6 +233,7 @@ impl Render for App {
             .bg(color(CANVAS))
             .text_color(color(INK))
             .child(self.render_toolbar(compact, small, busy, cx))
+            .when_some(self.render_setup(cx), |el, banner| el.child(banner))
             .child(
                 div()
                     .flex_1()
@@ -812,7 +814,7 @@ impl App {
             NextStep::FixWine if !blocked && device.wine_issues.len() == 1 => {
                 Some(self.wine_button(
                     &device.wine_issues[0].0,
-                    tr!("next.wine_fix.button").into(),
+                    tr!("next.wine_fix.button"),
                     true,
                     cx,
                 ))
@@ -1280,7 +1282,7 @@ impl App {
                     .when(self.reqs.is_empty(), |el| {
                         el.child(div().h_flex().child(self.wine_button(
                             node,
-                            tr!("wine.fix_this").into(),
+                            tr!("wine.fix_this"),
                             false,
                             cx,
                         )))
@@ -1406,7 +1408,8 @@ impl App {
                                         .map(|rule| self.render_rule_row(rule, small, cx)),
                                 ),
                         )
-                    }),
+                    })
+                    .when_some(self.render_helper_card(cx), |el, card| el.child(card)),
             )
     }
 
@@ -1422,10 +1425,9 @@ impl App {
             .map(Device::display_name)
             .or_else(|| saved_device_name(rule).map(str::to_owned))
             .unwrap_or_else(|| {
-                rule.id.as_ref().map_or_else(
-                    || tr!("device.unknown").into(),
-                    |id| tr!("device.usb_id", id = id),
-                )
+                rule.id
+                    .as_ref()
+                    .map_or_else(|| tr!("device.unknown"), |id| tr!("device.usb_id", id = id))
             });
         let expanded = self.expanded_rule.as_deref() == Some(&rule.file_name);
         let confirming = self.pending_removal.as_deref() == Some(&rule.file_name);
@@ -1570,6 +1572,97 @@ impl App {
                     )
                 })
             })
+    }
+
+    /// Banner shown until the root helper is installed, or when it is older than this program.
+    fn render_setup(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let (title, message, label) = match &self.helper {
+            selfinstall::State::Missing => {
+                (tr!("setup.title"), tr!("setup.body"), tr!("setup.install"))
+            }
+            state if state.needs_update() => {
+                let selfinstall::State::SelfInstalled { version } = state else {
+                    return None;
+                };
+                (
+                    tr!("setup.update_title"),
+                    tr!("setup.update_body", version = version),
+                    tr!("setup.update"),
+                )
+            }
+            _ => return None,
+        };
+        let (tint, fill) = tone_colors(Tone::Warning);
+        let installing = self.operation == Some(Operation::InstallHelper);
+        Some(
+            div()
+                .h_flex()
+                .flex_none()
+                .flex_wrap()
+                .items_center()
+                .gap_3()
+                .px_4()
+                .py_3()
+                .bg(color(fill))
+                .border_b_1()
+                .border_color(color(LINE))
+                .child(icon(IconName::ShieldCheck, 20., tint))
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex_1()
+                        .v_flex()
+                        .gap_1()
+                        .child(heading(title, 15.).text_color(color(tint)))
+                        .child(body(message)),
+                )
+                .child(
+                    Button::new("setup-install")
+                        .primary()
+                        .label(label)
+                        .disabled(self.operation.is_some() && !installing)
+                        .loading(installing)
+                        .on_click(cx.listener(|this, _, _, cx| this.install_helper(cx))),
+                ),
+        )
+    }
+
+    /// Rules page card: only for a helper this program installed.
+    fn render_helper_card(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let selfinstall::State::SelfInstalled { version } = &self.helper else {
+            return None;
+        };
+        let removing = self.operation == Some(Operation::UninstallHelper);
+        Some(
+            div()
+                .h_flex()
+                .flex_wrap()
+                .items_center()
+                .gap_3()
+                .p_4()
+                .rounded(px(8.))
+                .bg(color(PAPER))
+                .border_1()
+                .border_color(color(LINE))
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex_1()
+                        .v_flex()
+                        .gap_1()
+                        .child(heading(
+                            format!("{} {version}", tr!("setup.remove_title")),
+                            15.,
+                        ))
+                        .child(body(tr!("setup.remove_body"))),
+                )
+                .child(
+                    outline_button("setup-remove", tr!("setup.remove"), IconName::Trash)
+                        .disabled(self.operation.is_some() && !removing)
+                        .loading(removing)
+                        .on_click(cx.listener(|this, _, _, cx| this.uninstall_helper(cx))),
+                ),
+        )
     }
 
     fn render_feedback(&self, cx: &mut Context<Self>) -> Div {

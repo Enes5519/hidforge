@@ -6,6 +6,7 @@ use crate::hid;
 use crate::hidbpf;
 use crate::requirements;
 use crate::rules::{self, RULES_DIR};
+use crate::selfinstall;
 use std::fs;
 use std::io::{Read, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
@@ -84,10 +85,19 @@ fn path_str(p: &Path) -> Result<&str, String> {
     p.to_str().ok_or_else(|| tr!("err.temp_path_utf8"))
 }
 
-/// Run the helper as root with `input` on its stdin.
-fn run_pkexec(args: &[&str], input: &str) -> Result<String, String> {
+/// Run the installed helper as root with `input` on its stdin.
+pub(crate) fn run_pkexec(args: &[&str], input: &str) -> Result<String, String> {
+    run_pkexec_program(&helper_path()?, args, input)
+}
+
+/// Run `program` as root through `pkexec`. Always an absolute path, never a shell.
+pub(crate) fn run_pkexec_program(
+    program: &Path,
+    args: &[&str],
+    input: &str,
+) -> Result<String, String> {
     let mut child = Command::new("pkexec")
-        .arg(helper_path()?)
+        .arg(program)
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -106,18 +116,50 @@ fn run_pkexec(args: &[&str], input: &str) -> Result<String, String> {
     let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
     match out.status.code() {
         Some(0) => Ok(stdout),
-        Some(126) | Some(127)
+        code => Err(pkexec_failure(
+            code,
+            &stderr,
+            &out.status.to_string(),
+            program,
+            args,
+        )),
+    }
+}
+
+/// Message for a failed `pkexec` run. Without a polkit agent and without a terminal (how the GUI
+/// starts it) polkit 128 prints "Error creating textual authentication agent: ..." (observed in a
+/// container with polkitd and no agent); older versions print "No authentication agent found".
+/// Either way the install can be done with sudo. A cancelled or failed prompt prints
+/// "Error executing command as another user: Not authorized" (also observed).
+fn pkexec_failure(
+    code: Option<i32>,
+    stderr: &str,
+    status: &str,
+    program: &Path,
+    args: &[&str],
+) -> String {
+    if stderr.to_lowercase().contains("authentication agent") {
+        let hint = (args.first() == Some(&selfinstall::INSTALL_FLAG)).then(|| {
+            tr!(
+                "err.no_polkit_agent_sudo",
+                command = format!("sudo {} {}", program.display(), selfinstall::INSTALL_FLAG)
+            )
+        });
+        return match hint {
+            Some(hint) => format!("{} {hint}", tr!("err.no_polkit_agent")),
+            None => tr!("err.no_polkit_agent"),
+        };
+    }
+    match code {
+        Some(126 | 127)
             if stderr.is_empty()
                 || stderr.contains("dismissed")
                 || stderr.contains("Not authorized") =>
         {
-            Err(tr!("err.auth_denied"))
+            tr!("err.auth_denied")
         }
-        _ => Err(if stderr.is_empty() {
-            tr!("err.operation_failed", status = out.status)
-        } else {
-            stderr
-        }),
+        _ if stderr.is_empty() => tr!("err.operation_failed", status = status),
+        _ => stderr.to_string(),
     }
 }
 
@@ -128,6 +170,14 @@ fn run_pkexec(args: &[&str], input: &str) -> Result<String, String> {
 /// Entry point for helper mode. Returns the process exit code.
 pub fn helper_main(args: &[String]) -> i32 {
     let result = match args {
+        [flag] if flag == selfinstall::VERSION_FLAG => {
+            Ok(format!("hidforge-helper {}", selfinstall::VERSION))
+        }
+        [flag] if flag == selfinstall::INSTALL_FLAG => selfinstall::helper_install(None),
+        [flag, identity] if flag == selfinstall::INSTALL_FLAG => {
+            selfinstall::helper_install(Some(identity))
+        }
+        [flag] if flag == selfinstall::UNINSTALL_FLAG => selfinstall::helper_uninstall(),
         [flag, name] if flag == APPLY_FLAG => helper_apply(name),
         [flag, name] if flag == REMOVE_FLAG => helper_remove(name),
         [flag, name] if flag == BPF_INSTALL_FLAG => helper_bpf_install(name),
@@ -353,6 +403,70 @@ fn run(cmd: &str, args: &[&str]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pkexec_failures_get_actionable_messages() {
+        let prog = Path::new("/home/u/hidforge/hidforge-helper");
+        // Real output (polkit 128, polkitd running, no agent, GUI-like start without a terminal).
+        let no_agent = "Error creating textual authentication agent: Error opening current controlling terminal for the process (`/dev/tty'): No such device or address";
+        let install = pkexec_failure(
+            Some(127),
+            no_agent,
+            "",
+            prog,
+            &[selfinstall::INSTALL_FLAG, "1:2:3:4.5"],
+        );
+        assert!(install.contains("sudo /home/u/hidforge/hidforge-helper --install-self"));
+        // Other operations get the agent hint but no sudo command (they need stdin/arguments).
+        let other = pkexec_failure(Some(127), no_agent, "", prog, &["--apply", "x"]);
+        assert!(!other.contains("sudo"));
+        assert_ne!(other, no_agent);
+        // Older polkit wording.
+        assert!(
+            pkexec_failure(
+                Some(127),
+                "No authentication agent found.",
+                "",
+                prog,
+                &["--apply"]
+            )
+            .contains("polkit")
+        );
+        // Cancelled prompt and wrong password (real output), empty stderr, unknown errors.
+        assert_eq!(
+            pkexec_failure(
+                Some(127),
+                "Error executing command as another user: Not authorized\n\nThis incident has been reported.",
+                "",
+                prog,
+                &[]
+            ),
+            tr!("err.auth_denied")
+        );
+        assert_eq!(
+            pkexec_failure(Some(126), "Error: Not authorized", "", prog, &[]),
+            tr!("err.auth_denied")
+        );
+        assert_eq!(pkexec_failure(Some(1), "boom", "", prog, &[]), "boom");
+        assert!(
+            pkexec_failure(Some(2), "", "exit status: 2", prog, &[]).contains("exit status: 2")
+        );
+    }
+
+    #[test]
+    fn helper_rejects_unknown_arguments() {
+        for args in [
+            vec![],
+            vec!["--evil"],
+            vec!["--apply"],
+            vec!["--install-self", "a", "b"],
+            vec!["--uninstall-self", "x"],
+            vec!["--version", "x"],
+        ] {
+            let args: Vec<String> = args.into_iter().map(String::from).collect();
+            assert_eq!(helper_main(&args), 1, "{args:?}");
+        }
+    }
 
     #[test]
     fn hidraw_name_is_strict() {

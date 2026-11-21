@@ -1,4 +1,4 @@
-use hidforge::{devices, hid, hidbpf, privileged, requirements, rules};
+use hidforge::{devices, hid, hidbpf, privileged, requirements, rules, selfinstall};
 
 rust_i18n::i18n!("locales", fallback = "en");
 

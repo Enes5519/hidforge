@@ -5,6 +5,7 @@ use crate::hidbpf;
 use crate::privileged;
 use crate::requirements::{self, Distro, Missing};
 use crate::rules::{self, AccessMode, InstalledRule, RuleOptions};
+use crate::selfinstall;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::{Theme, ThemeMode};
 use gpui_kit::{
@@ -73,6 +74,8 @@ enum Operation {
     FixWine(PathBuf),
     RemoveFix,
     Export,
+    InstallHelper,
+    UninstallHelper,
 }
 
 impl Operation {
@@ -83,6 +86,8 @@ impl Operation {
             Self::FixWine(_) => tr!("op.fix_wine.pending"),
             Self::RemoveFix => tr!("op.remove_fix.pending"),
             Self::Export => tr!("op.export.pending"),
+            Self::InstallHelper => tr!("op.install_helper.pending"),
+            Self::UninstallHelper => tr!("op.uninstall_helper.pending"),
         }
     }
 
@@ -93,6 +98,8 @@ impl Operation {
             Self::FixWine(_) => tr!("op.fix_wine.failed"),
             Self::RemoveFix => tr!("op.remove_fix.failed"),
             Self::Export => tr!("op.export.failed"),
+            Self::InstallHelper => tr!("op.install_helper.failed"),
+            Self::UninstallHelper => tr!("op.uninstall_helper.failed"),
         }
     }
 }
@@ -126,6 +133,7 @@ struct Scan {
     devices: Vec<Device>,
     installed: Vec<InstalledRule>,
     reqs: Vec<Missing>,
+    helper: selfinstall::State,
 }
 
 impl Scan {
@@ -134,6 +142,7 @@ impl Scan {
             devices: devices::scan(),
             installed: rules::installed(),
             reqs: requirements::check(),
+            helper: selfinstall::State::detect(),
         }
     }
 }
@@ -145,6 +154,7 @@ pub struct App {
     existing: Vec<InstalledRule>,
     bpf_installed: Vec<String>,
     reqs: Vec<Missing>,
+    helper: selfinstall::State,
     distro: (Distro, String),
     opts: RuleOptions,
     page: Page,
@@ -177,6 +187,7 @@ impl App {
             existing: Vec::new(),
             bpf_installed: Vec::new(),
             reqs: Vec::new(),
+            helper: selfinstall::State::Unmanaged,
             distro: Distro::detect(),
             opts: RuleOptions {
                 hidraw: true,
@@ -222,6 +233,7 @@ impl App {
         self.devices = scan.devices;
         self.installed = scan.installed;
         self.reqs = scan.reqs;
+        self.helper = scan.helper;
         if let Some(id) = &self.selected {
             if self.devices.iter().any(|device| &device.id == id) {
                 self.existing = rules::existing_for(id);
@@ -357,6 +369,16 @@ impl App {
                 tr!("notice.fix_removed.body"),
             ),
             Operation::Export => Notice::new(Tone::Success, tr!("notice.exported"), message),
+            Operation::InstallHelper => Notice::new(
+                Tone::Success,
+                tr!("notice.helper_installed.title"),
+                tr!("notice.helper_installed.body"),
+            ),
+            Operation::UninstallHelper => Notice::new(
+                Tone::Success,
+                tr!("notice.helper_removed.title"),
+                tr!("notice.helper_removed.body"),
+            ),
         }
     }
 
@@ -402,6 +424,14 @@ impl App {
             move || privileged::bpf_remove(&name),
             cx,
         );
+    }
+
+    fn install_helper(&mut self, cx: &mut Context<Self>) {
+        self.run_job(Operation::InstallHelper, selfinstall::install, cx);
+    }
+
+    fn uninstall_helper(&mut self, cx: &mut Context<Self>) {
+        self.run_job(Operation::UninstallHelper, selfinstall::uninstall, cx);
     }
 
     fn export(&mut self, window: &mut Window, cx: &mut Context<Self>) {
