@@ -67,9 +67,11 @@ jobs:
             -e target/release/hidforge \
             -d assets/hidforge.desktop \
             -i hidforge.png
-          # The root helper is copied as is: linuxdeploy would add an RPATH to it.
+          # The root helper is copied after linuxdeploy: a later linuxdeploy run would add an RPATH to it.
           install -Dm755 target/release/hidforge-helper AppDir/usr/bin/hidforge-helper
-          ./linuxdeploy --appimage-extract-and-run --appdir AppDir --output appimage
+          # Pack with linuxdeploy's own AppImage plugin (same pinned download), which only packs.
+          ./linuxdeploy --appimage-extract >/dev/null
+          squashfs-root/plugins/linuxdeploy-plugin-appimage/usr/bin/linuxdeploy-plugin-appimage --appdir AppDir
           # linuxdeploy names the file from $VERSION; fail if that ever changes.
           test -f hidforge-$VERSION-x86_64.AppImage
 
