@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=hidforge
+GenericName=HID Device Helper
+Comment=Make Windows-only keyboard and mouse software work on Linux
+Exec=hidforge
+Icon=hidforge
+Terminal=false
+Categories=Utility;Settings;HardwareSettings;
+StartupWMClass=hidforge

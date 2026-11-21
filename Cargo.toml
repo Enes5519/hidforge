@@ -1,0 +1,16 @@
+[package]
+name = "hidforge"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Make Windows-only keyboard and mouse software work on Linux"
+license = "GPL-3.0-or-later"
+readme = "README.md"
+keywords = ["hid", "udev", "wine", "linux", "bpf"]
+categories = ["hardware-support", "os::linux-apis"]
+
+[dependencies]
+gpui-kit = "0.9.1"
+image = { version = "0.25", default-features = false, features = ["png"] }
+libc = "0.2.191"
+rust-i18n = "3"
