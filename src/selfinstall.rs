@@ -792,6 +792,20 @@ mod tests {
         assert!(install_files(&mut exe, &meta, &p).is_err());
     }
 
+    /// A child forked by a parallel test can briefly still hold a copy of the lock descriptor
+    /// (until its exec closes it), so the lock frees a moment after the previous holder drops it.
+    fn retry_while_busy(mut op: impl FnMut() -> Result<String, String>) -> Result<String, String> {
+        let mut result = op();
+        for _ in 0..100 {
+            if result != Err(tr!("err.setup_busy")) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            result = op();
+        }
+        result
+    }
+
     fn exe_file(root: &Path, content: &[u8]) -> (File, fs::Metadata) {
         let path = root.join("exe");
         fs::write(&path, content).unwrap();
@@ -833,7 +847,8 @@ mod tests {
             .unwrap();
 
             let (mut exe, meta) = exe_file(&root, b"good-binary");
-            install_files(&mut exe, &meta, &p).unwrap_or_else(|e| panic!("{tag}: {e}"));
+            retry_while_busy(|| install_files(&mut exe, &meta, &p))
+                .unwrap_or_else(|e| panic!("{tag}: {e}"));
             assert_eq!(fs::read(&p.helper).unwrap(), b"good-binary", "{tag}");
             assert_eq!(fs::read(&p.policy).unwrap(), POLICY.as_bytes(), "{tag}");
             assert_eq!(
@@ -848,7 +863,7 @@ mod tests {
                 "{tag}"
             );
             // And the same state can be removed cleanly instead.
-            uninstall_files(&p).unwrap();
+            retry_while_busy(|| uninstall_files(&p)).unwrap();
             assert!(
                 !p.helper.exists() && !p.policy.exists() && !p.manifest.exists(),
                 "{tag}"
@@ -967,17 +982,7 @@ mod tests {
         assert_eq!(uninstall_files(&p).unwrap_err(), tr!("err.setup_busy"));
         assert!(!p.helper.exists());
         drop(guard);
-        // A child forked by a parallel test can briefly still hold a copy of the descriptor
-        // (until its exec closes it), so the lock frees a moment after the drop.
-        let mut result = install_files(&mut exe, &meta, &p);
-        for _ in 0..100 {
-            if result != Err(tr!("err.setup_busy")) {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            result = install_files(&mut exe, &meta, &p);
-        }
-        result.unwrap();
+        retry_while_busy(|| install_files(&mut exe, &meta, &p)).unwrap();
     }
 
     #[test]
