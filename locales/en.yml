@@ -18,6 +18,8 @@ _version: 1
 "nav.rules": "Installed rules"
 "nav.refresh": "Refresh"
 "nav.refresh_hint": "Refresh devices and rules"
+"nav.report": "Report a problem"
+"nav.report_hint": "Open a GitHub issue with system details filled in"
 "scan.done": "Scan complete"
 "rail.title": "USB devices"
 "rail.attention": "Needs attention"

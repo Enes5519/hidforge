@@ -18,6 +18,8 @@ _version: 1
 "nav.rules": "Yüklü kurallar"
 "nav.refresh": "Yenile"
 "nav.refresh_hint": "Cihazları ve kuralları yenile"
+"nav.report": "Sorun bildir"
+"nav.report_hint": "Sistem bilgileri doldurulmuş bir GitHub issue açar"
 "scan.done": "Tarama tamamlandı"
 "rail.title": "USB cihazları"
 "rail.attention": "İşlem gerekenler"

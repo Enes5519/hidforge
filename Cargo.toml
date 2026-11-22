@@ -13,6 +13,7 @@ categories = ["hardware-support", "os::linux-apis"]
 gpui-kit = "0.9.1"
 image = { version = "0.25", default-features = false, features = ["png"] }
 libc = "0.2.191"
+url = "2.5.9"
 rust-i18n = "3"
 
 [profile.dev]

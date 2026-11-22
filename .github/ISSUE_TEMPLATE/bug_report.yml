@@ -1,0 +1,49 @@
+name: Bug report
+description: Something doesn't work with hidforge or your device
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! If you opened this from the **Report a problem** button in hidforge,
+        the version, system and device fields are already filled in. Please check them before submitting.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Select the device
+        2. Click "Install Wine fix"
+        3. ...
+  - type: input
+    id: vendor_software
+    attributes:
+      label: Vendor software and Wine
+      description: The Windows app you are trying to use, and your Wine/Bottles version.
+      placeholder: "e.g. Logitech G HUB, Bottles 51.x (wine-9.0)"
+  - type: input
+    id: version
+    attributes:
+      label: hidforge version
+      placeholder: "e.g. 0.1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: system
+    attributes:
+      label: System
+      description: Distribution, kernel, UI language and missing requirements (`hidforge --check`).
+      render: text
+  - type: textarea
+    id: device
+    attributes:
+      label: Device
+      description: Name, VID:PID, access, installed rules and detected Wine issues. `hidforge --list` shows the IDs.
+      render: text

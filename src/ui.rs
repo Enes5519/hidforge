@@ -1,3 +1,4 @@
+mod report;
 mod views;
 
 use crate::devices::{self, Device, UsbId};

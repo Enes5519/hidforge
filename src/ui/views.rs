@@ -330,7 +330,15 @@ impl App {
                     } else {
                         32.
                     })))
-                    .child(heading("hidforge", if small { 16. } else { 20. })),
+                    .child(heading("hidforge", if small { 16. } else { 20. }))
+                    .when(!small, |el| {
+                        el.child(
+                            div()
+                                .text_xs()
+                                .text_color(color(SUBTLE))
+                                .child(format!("v{}", super::report::VERSION)),
+                        )
+                    }),
             )
             .child(
                 div()
@@ -378,6 +386,18 @@ impl App {
                         })),
                 )
             })
+            .child(
+                Button::new("report")
+                    .ghost()
+                    .h(px(34.))
+                    .mr_2()
+                    .when(compact, |button| button.w(px(34.)))
+                    .icon(IconName::Github)
+                    .when(!compact, |button| button.label(tr!("nav.report")))
+                    .accessibility_label(tr!("nav.report_hint"))
+                    .tooltip(tr!("nav.report_hint"))
+                    .on_click(cx.listener(|this, _, _, cx| cx.open_url(&this.issue_url()))),
+            )
             .child(
                 Button::new("refresh")
                     .outline()
