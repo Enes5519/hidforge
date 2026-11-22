@@ -3,8 +3,8 @@ name: Release
 on:
   push:
     tags: ["v*"]
-  # Dry run: the same build, packaging and verification, but nothing is attested or published
-  # (the publish job only runs for a tag push). Start it from the Actions tab.
+  # On a branch: dry run, the same build, packaging and verification, but nothing is attested or
+  # published. On a v* tag (as the Bump version workflow does): a real release.
   workflow_dispatch:
 
 # Least privilege: jobs that need more ask for it themselves.
@@ -32,7 +32,7 @@ jobs:
           v=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')
           # X.Y.Z or a release candidate X.Y.Z-rc.N (the tag is the same with a leading v).
           echo "$v" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$' || { echo "Cargo.toml version '$v' is not X.Y.Z or X.Y.Z-rc.N"; exit 1; }
-          if [ "$GITHUB_EVENT_NAME" = push ]; then
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
             [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME != Cargo.toml v$v"; exit 1; }
           else
             echo "dry run on $GITHUB_REF_NAME: no tag to compare, Cargo.toml says $v"
@@ -116,14 +116,14 @@ jobs:
             echo "### Release check"
             echo "- version: \`${{ needs.build.outputs.version }}\`, event: \`$GITHUB_EVENT_NAME\`, ref: \`$GITHUB_REF_NAME\`"
             echo "- repository private: \`${{ github.event.repository.private }}\` (attestations need a public repository)"
-            if [ "$GITHUB_EVENT_NAME" = push ]; then echo "- publishing: yes, if this job passes"; else echo "- **dry run: nothing is attested, tagged or published**"; fi
+            if [ "$GITHUB_REF_TYPE" = tag ]; then echo "- publishing: yes, if this job passes"; else echo "- **dry run: nothing is attested, tagged or published**"; fi
             echo; echo '```'; (cd dist && ls -l && cat SHA256SUMS); echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Only for a pushed v* tag, and only when the build and every check above succeeded.
+  # Only for a v* tag (pushed or dispatched), and only when the build and every check above succeeded.
   publish:
     needs: [build, verify]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-22.04
     permissions:
       contents: write # create the release

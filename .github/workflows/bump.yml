@@ -1,0 +1,67 @@
+name: Bump version
+
+# Manual: bumps Cargo.toml/Cargo.lock on main, commits, tags vX.Y.Z and starts the Release workflow
+# on that tag. A tag pushed with GITHUB_TOKEN does not trigger `on: push`, so Release is dispatched.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "auto (from commits since the last v* tag) / patch / minor / major / rc (next release candidate) / release (drop -rc.N)"
+        type: choice
+        options: [auto, patch, minor, major, rc, release]
+        default: auto
+      prerelease:
+        description: "patch/minor/major: start as -rc.1"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the commit and tag
+      actions: write # dispatch the Release workflow
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # tags and history for `auto`
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - name: Bump, commit, tag
+        id: bump
+        env:
+          BUMP: ${{ inputs.bump }}
+          PRE: ${{ inputs.prerelease }}
+        run: |
+          cur=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')
+          # Commits since the last v* tag (all history if there is none yet).
+          last=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+          git log --format=%B ${last:+"$last"..}HEAD > /tmp/commits
+          echo "last release: ${last:-none}, $(git rev-list --count ${last:+"$last"..}HEAD) commits since"
+          next=$(packaging/next-version.sh "$cur" "$BUMP" "$PRE" < /tmp/commits)
+          git rev-parse -q --verify "refs/tags/v$next" >/dev/null && { echo "tag v$next already exists"; exit 1; }
+          echo "$cur -> $next"
+          # Only the [package] version line (the first one) changes.
+          sed -i "0,/^version = \"$cur\"/s//version = \"$next\"/" Cargo.toml
+          cargo update --workspace
+          git diff --stat
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: release v$next"
+          git tag -a "v$next" -m "v$next"
+          git push --atomic origin HEAD:main "v$next"
+          echo "tag=v$next" >> "$GITHUB_OUTPUT"
+      - name: Start Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          gh workflow run release.yml --ref "$TAG"
+          echo "Released $TAG: see the Release workflow run." >> "$GITHUB_STEP_SUMMARY"
