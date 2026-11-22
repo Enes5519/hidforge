@@ -21,66 +21,61 @@ descriptor.
 
 ## What it does
 
-- **Lists your USB devices** and shows which ones need attention.
-- **Gives the app access to the device.** Linux locks these devices to root by default; one
-  click installs a rule that lets your user talk to it.
-- **Fixes a Wine compatibility bug.** Some devices describe themselves in a way Wine
-  misreads, so settings never reach the device. The app detects this and installs a small
-  fix in the kernel, only for that device.
-- **Tells you what's missing.** If a required package isn't installed, it shows the install
-  command for your distribution.
+- Lists your USB devices and puts the ones that need attention first.
+- Installs a udev rule so your user, not just root, can talk to the device.
+- Detects devices whose descriptor Wine misreads (so settings never reach them) and loads a
+  kernel fix for that device only.
+- Shows the install command for your distribution when a required package is missing.
 
-Everything that needs root asks for your password through the system's usual prompt (polkit).
+Anything that needs root asks for your password through polkit.
 
-## How to use
+## Install
 
-1. Open hidforge and pick your device. Devices with an access or Wine issue appear first under
-   **Needs attention**.
-2. Follow **Next step**. If needed, grant access first, then install the Wine fix.
-3. After a Wine fix, fully close Wine/Bottles, then open your vendor software again.
-4. Open **Installed rules** to inspect or remove a rule this app installed. **Technical
-   details** contains access options, the rule preview and export.
+Download a file from the [latest release](https://github.com/Enes5519/hidforge/releases/latest)
+(x86_64):
 
-The interface is available in English and Turkish. It follows `LC_ALL`/`LC_MESSAGES`/`LANG`;
-you can also switch it in the app (the choice is saved in `~/.config/hidforge/locale`).
+- **Debian/Ubuntu:** `sudo apt install ./hidforge_<version>_amd64.deb`. Updates and removal go
+  through apt.
+- **Any distribution:** the AppImage (`chmod +x` it and run it) or the `tar.gz` (extract it and
+  run `./hidforge`).
 
-## Command line
+The AppImage and tarball need a one-time setup on first start. hidforge runs its root part,
+`hidforge-helper`, from `/usr/libexec` with a polkit policy, so press **Install helper** and enter
+your password. A newer download offers **Update helper**, and the **System helper** card under
+**Installed rules** removes it. Removing it leaves your rules and Wine fixes in place.
+
+<details>
+<summary>Verifying the download</summary>
 
 ```sh
-hidforge --check                          # list missing requirements and the install command for your distro (exit 1 if any)
-hidforge --list                           # list detected USB devices
-hidforge --bpf-source /dev/hidrawN        # print the generated HID-BPF fix for a device
-hidforge --bpf-source-raw VID:PID FILE    # same, from a saved report descriptor file
+sha256sum -c --ignore-missing SHA256SUMS
+gh attestation verify <file> --repo Enes5519/hidforge   # built by this repo's release workflow
 ```
 
-## Requirements
+The helper setup installs whatever download you run it from, as `sudo ./install.sh` would. It
+won't downgrade a newer helper or replace one it didn't install, but it doesn't check
+signatures, so verify the file first.
 
-- Linux with polkit
-- For the Wine fix: `udev-hid-bpf`, `clang`, `libbpf` and kernel 6.11 or newer. Run
-  `hidforge --check` to see what is missing.
+</details>
 
-Developed and tested on Arch-based distributions. Debian, Fedora and openSUSE should work
-(install commands are provided) but are untested.
+<details>
+<summary>Building from source</summary>
 
-## Build
-
-Needs Rust 1.88 or newer and the system libraries the GUI toolkit (gpui) links against. On
-Debian/Ubuntu, CI installs:
+You need Rust 1.88 or newer and the libraries gpui (the GUI toolkit) links against. On
+Debian/Ubuntu:
 
 ```sh
 sudo apt-get install libasound2-dev libfontconfig-dev libwayland-dev libx11-xcb-dev \
   libxkbcommon-x11-dev libssl-dev libzstd-dev libvulkan-dev
+cargo build --release --locked
 ```
 
-Other distributions need the equivalent packages.
+Run `target/release/hidforge` and press **Install helper**: it installs the `hidforge-helper`
+built next to it. **Update helper** appears only when the version number goes up, not when you
+rebuild the same version.
 
-```sh
-cargo build --release
-```
-
-This builds two programs: `hidforge` (the app) and `hidforge-helper` (the small part that runs
-as root, only for installing or removing rules and fixes). Install the helper and its polkit
-policy so the password prompt names hidforge and only this helper can run:
+Packagers can install the helper by hand instead. hidforge then leaves it alone, so you update
+it yourself:
 
 ```sh
 sudo install -Dm755 target/release/hidforge-helper /usr/libexec/hidforge-helper
@@ -88,11 +83,16 @@ sudo install -Dm644 assets/org.hidforge.helper.policy /usr/share/polkit-1/action
 install -Dm755 target/release/hidforge ~/.local/bin/hidforge
 ```
 
-Release builds only use the installed helper. For development, a debug build (`cargo run`)
-falls back to the `hidforge-helper` built next to it, with a generic password prompt. Reinstall
-the helper after updating, since an installed one takes precedence.
+Release builds use only the installed helper. A debug build (`cargo run`) falls back to the
+helper next to it, with a generic password prompt, unless one is installed.
 
-Optional: show the app icon in your launcher and window title bar:
+</details>
+
+<details>
+<summary>Launcher entry and icon (tarball and source builds)</summary>
+
+The `.deb` installs these already. Without them Wayland shows no window icon. From the source
+tree (in the tarball the files are `hidforge.desktop` and `icons/`):
 
 ```sh
 install -Dm644 assets/hidforge.desktop ~/.local/share/applications/hidforge.desktop
@@ -102,17 +102,53 @@ for s in 16 24 32 48 64 128 256 512; do
 done
 ```
 
+The entry runs `hidforge` from your `PATH`, for example `~/.local/bin`.
+
+</details>
+
+## How to use
+
+1. Open hidforge and pick your device. Devices with an access or Wine issue appear first under
+   **Needs attention**.
+2. Follow **Next step**: grant access first if needed, then install the Wine fix.
+3. After a Wine fix, fully close Wine/Bottles and open your vendor software again.
+4. **Installed rules** lists what hidforge installed and lets you remove it. **Technical
+   details** has the access options, the rule preview and export.
+
+The interface is in English and Turkish. It follows `LC_ALL`/`LC_MESSAGES`/`LANG`, and you can
+switch it in the app (saved in `~/.config/hidforge/locale`).
+
+## Requirements
+
+- Linux with polkit.
+- For the Wine fix: `udev-hid-bpf`, `clang`, libbpf and Linux UAPI headers, and kernel 6.11 or
+  newer with `CONFIG_HID_BPF` and BTF. `hidforge --check` lists what's missing.
+
+Developed and tested on Arch-based distributions. Debian, Fedora and openSUSE should work
+(install commands are provided) but are untested.
+
+<details>
+<summary>Command line</summary>
+
+```sh
+hidforge --check                          # missing requirements and the install command (exit 1 if any)
+hidforge --list                           # detected USB devices
+hidforge --bpf-source /dev/hidrawN        # print the generated HID-BPF fix for a device
+hidforge --bpf-source-raw VID:PID FILE    # same, from a saved report descriptor file
+```
+
+</details>
+
 ## Contributing
 
-- **Translations:** copy `locales/en.yml` to `locales/<code>.yml` and translate the values. The
-  language appears in the app automatically after a rebuild.
-- **Before a PR:** run `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and
-  `cargo test` (the same checks CI runs).
-- **Security:** the GUI never runs as root. Only `hidforge-helper` does, and CI fails if it
-  links the GUI toolkit. Keep it small and validate all its input.
+- Translations: copy `locales/en.yml` to `locales/<code>.yml` and translate the values. The
+  language shows up in the app after a rebuild.
+- Before a PR, run the checks CI runs: `cargo fmt --check`,
+  `cargo clippy --all-targets -- -D warnings` and `cargo test`.
+- Only `hidforge-helper` runs as root, never the GUI, and CI fails if the helper links the GUI
+  toolkit. Keep it small and validate everything it reads.
 
 ## License
 
-GPL-3.0-or-later. See [LICENSE](LICENSE). The small HID-BPF programs hidforge generates and
-loads into the kernel for your devices carry their own `GPL-2.0-only` header, as the kernel
-requires.
+GPL-3.0-or-later. See [LICENSE](LICENSE). The HID-BPF programs hidforge generates and loads
+into the kernel carry their own `GPL-2.0-only` header, as the kernel requires.
